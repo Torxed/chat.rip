@@ -64,10 +64,14 @@
 				transition: all 0.3s ease;
 			}
 
+			.form-area.history-loaded {
+				height: 100%;
+			}
+
 			.input-form {
 				position: relative;
 				width: 100%;
-				height: 40px;
+				height: 50px;
 				overflow: hidden;
 				display: flex;
 			}
@@ -164,6 +168,8 @@
 				margin-top: 10px;
 				padding-top: 5px;
 				border-top: 1px dotted #33aadd;
+				height: 100%;
+				overflow: auto;
 			}
 
 			@media only screen and (max-width: 600px) {
@@ -199,78 +205,45 @@
 				return false;
 			}
 
-			function handleKeySend(event) {
-				if(event.code == 'Enter') {
-					let struct = {
-						payload: document.querySelector('#partner_id').value,
-						access_token: access_token
-					}
-					socket.send(struct);
-				}
+			function send_encrypted_data(data) {
+				generate_one_time_key((one_time_key) => {
+					encrypt_with_key(data, one_time_key, (encrypt_struct) => {
+						wrap_key_in_pubkey(encrypt_struct, one_time_key, connected_to['publicKey'], (wrapped_key) => {
+							let struct = {
+								'payload': encrypt_struct['b64_encrypted_payload'],
+								'key' : wrapped_key,
+								'iv' : btoa(encrypt_struct['iv']),
+								'key_format' : encrypt_struct['key_format'],
+								"access_token": access_token
+							}
+							socket.send(struct);
+						});
+					});
+				})
 			}
 
 			function handleKeySendEncrypted(event) {
 				if(event.code == 'Enter') {
-					let key_id = Math.random();
-					generate_key(key_id); // ID
-					setTimer("encrypt", function() {
-						// The only timer we need
-						// is one that waits for the message key to be generated.
-						let key_data = JSON.parse(localStorage.getItem("key_storage"))[key_id];
-						if(key_data && typeof key_data !== "undefined" && sizeOf(key_data.key)) {
-							print('Loading key for device: ' + device)
-							load_key(key_id, function(AES_key, iv) {
-								print('Encrypting message.')
-								encrypt(msg, AES_key, iv, function(encrypted_message) {
-									print('Encrypted done: ' + encrypted_message);
-
-									load_public_key(devices[participant+'@'+domain][device].key, function(public_key) {
-										print('Wrapping key for transport')
-										wrap_AES_key(AES_key, public_key, function(wrapped_AES_key) {
-											setTimer("send_on_verify_msg:"+key_id, function() {
-												if (typeof verified_devices[device] !== "undefined") {
-													if (verified_devices[device]) {
-														//returns an ArrayBuffer containing the encrypted data
-														print("Sending out message struct:");
-
-														let struct = {
-															type: 'message',
-															action: 'send',
-															key: btoa(new Uint8Array(wrapped_AES_key)),
-															message: encrypted_message,
-															"to": to,
-															"device": device,
-															"owner": participant+'@'+domain,
-															"iv": btoa(iv),
-															"access_token": access_token
-														}
-														print(struct);
-														send(struct);
-														clearTimer("send_on_verify_msg:"+key_id);
-													} // else when timer-lifetime: clear timer
-												} else {
-													if(typeof elements["Verify device"] === "undefined") {
-														popup("Verify device", participant+"'s device '" + device + "', needs to be verified in order for messages to be sent to this device.<br><br><b>Fingerprint</b>: " + crc32(devices[participant+'@'+domain][device]['key']['n']).toString(16).toUpperCase() + ' (crc32)', function() {
-															verified_devices[device] = true;
-															document.getElementById('popup').remove();
-														})
-													}
-												}
-											})
-										});
-									})
-								});
-							})
-							clearTimer("encrypt");
-						}
-					});
-
-					let struct = {
-						payload: document.querySelector('#partner_id').value,
-						access_token: access_token
-					}
-					socket.send(struct);
+					send_encrypted_data(document.querySelector('#partner_id').value);
 				}
+			}
+
+			function decryptMessage(data, key_info, func) {
+				let array = JSON.parse("["+atob(data)+"]");
+				let encrypted_message = new Uint8Array(array);
+				let one_time_key_wrapped = new Uint8Array(JSON.parse("["+atob(key_info['key'])+"]"));
+
+				load_private_key(keys['privateKey'], (privateKey) => {
+					extract_one_time_key(one_time_key_wrapped, privateKey, (one_time_key) => {
+						let options = {
+							name: key_info['key_format'],
+							iv: new Uint8Array(JSON.parse("["+atob(key_info['iv'])+"]"))
+						};
+						decrypt_with_key(options, one_time_key, encrypted_message, (decrypted_message) => {
+							func(decrypted_message)
+						});
+					});
+				});
 			}
 
 			function handleKeyLogin(event) {
@@ -281,6 +254,18 @@
 					};
 					socket.send(struct);
 				}
+
+				/*
+				let struct = {
+					key: btoa(new Uint8Array(wrapped_AES_key)),
+					payload: encrypted_message,
+					"to": to,
+					"device": device,
+					"owner": participant+'@'+domain,
+					"iv": btoa(iv),
+					"access_token": access_token
+				}
+				*/
 			}
 
 			function handle_message(payload) {
@@ -306,7 +291,7 @@
 								document.querySelector('#partner_id').focus();
 								document.querySelector('#partner_id').type = 'text';
 								document.querySelector('#partner_id').removeEventListener('keydown', handleKeyLogin);
-								document.querySelector('#partner_id').addEventListener('keydown', handleKeySend);
+								document.querySelector('#partner_id').addEventListener('keydown', handleKeySendEncrypted);
 
 								document.querySelector('#connectButton').remove();
 								document.querySelector('#acceptButton').remove();
@@ -324,14 +309,14 @@
 								sendButton.id = 'sendButton';
 								sendButton.innerHTML = 'Send message';
 								sendButton.addEventListener('click', () => {
-									let struct = {
-										payload: document.querySelector('#partner_id').value,
-										access_token: access_token
-									}
-									socket.send(struct);
+									send_encrypted_data(document.querySelector('#partner_id').value);
 								})
 
 								document.querySelector('#buttons').appendChild(sendButton);
+								let history = document.createElement('div');
+								history.classList = 'history';
+								document.querySelector('#form-area').appendChild(history);
+								document.querySelector('#form-area').classList = 'form-area history-loaded'
 							}
 						} else if (typeof data['device_id'] !== 'undefined' && typeof data['access_token'] !== 'undefined') {
 							my_device_id = data['device_id'];
@@ -384,7 +369,7 @@
 						document.querySelector('#partner_id').focus();
 						document.querySelector('#partner_id').type = 'text';
 						document.querySelector('#partner_id').removeEventListener('keydown', handleKeyLogin);
-						document.querySelector('#partner_id').addEventListener('keydown', handleKeySend);
+						document.querySelector('#partner_id').addEventListener('keydown', handleKeySendEncrypted);
 						document.querySelector('#connectButton').remove();
 
 						document.querySelector('.my_device').classList = 'my_device connected';
@@ -402,21 +387,24 @@
 						sendButton.innerHTML = 'Send message';
 
 						sendButton.addEventListener('click', () => {
-							let struct = {
-								payload: document.querySelector('#partner_id').value,
-								access_token: access_token
-							}
-							socket.send(struct);
+							send_encrypted_data(document.querySelector('#partner_id').value);
 						})
 
 						document.querySelector('#buttons').appendChild(sendButton);
+						let history = document.createElement('div');
+						history.classList = 'history';
+						document.querySelector('#form-area').appendChild(history);
+						document.querySelector('#form-area').classList = 'form-area history-loaded'
 					}
 				} else {
 					if (typeof data['payload'] !== 'undefined') {
-						let history_item = document.createElement('span');
-						let history_container = document.querySelector('.history');
-						history_item.innerHTML = data['payload'];
-						history_container.insertBefore(history_item, history_container.firstChild);
+						decryptMessage(data['payload'], {'iv' : data['iv'], 'key_format' : data['key_format'], 'key' : data['key']}, (decrypted) => {
+							let history_item = document.createElement('span');
+							let history_container = document.querySelector('.history');
+							history_item.innerHTML = decrypted;
+							history_container.insertBefore(history_item, history_container.firstChild);
+						})
+
 					}
 				}
 			}
@@ -485,8 +473,6 @@
 				</div>
 				<div class="buttons" id="buttons">
 					<button id="connectButton">Connect to partner</button>
-				</div>
-				<div class="history">
 				</div>
 			</div>
 		</div>
