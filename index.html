@@ -1,0 +1,494 @@
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta http-equiv="X-UA-Compatible" content="ie=edge" />
+		<style type="text/css">
+			body {
+				height: 100%;
+				width: 100%;
+				left: 0px;
+				top: 0px;
+				margin: 0px;
+				padding: 0px;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				font-family: sans-serif;
+
+				background-color: #BDD4E7;
+			}
+
+			.content {
+				display: flex;
+				flex-direction: column;
+				width: 40%;
+				height: 100%;
+			}
+
+			.align-right {
+				margin-left: auto;
+			}
+
+			.buttons {
+				display: flex;
+				flex-direction: row;
+			}
+
+			.buttons button,
+			.testing button {
+				width: 180px;
+				padding: 8px;
+				margin-top: 5px;
+				background-color: #7C98B3;
+				border: 1px solid #CEE5F2;
+				border-radius: 4px;
+				color: #CEE5F2;
+			}
+
+			.buttons button:hover {
+				color: #FFFFFF;
+				border: 1px solid #CEE5F2;
+			}
+
+			.disconnect {
+				background-color: #EF2D56 !important;
+			}
+
+			.form-area {
+				position: relative;
+				display: flex;
+				flex-direction: column;
+				margin-top: auto;
+				margin-bottom: auto;
+				transition: all 0.3s ease;
+			}
+
+			.input-form {
+				position: relative;
+				width: 100%;
+				height: 40px;
+				overflow: hidden;
+				display: flex;
+			}
+
+			.input-form input {
+				width: 100%;
+				height: 25px;
+				padding-top: 0px;
+				border: none;
+				color: #595f6e;
+				outline: none;
+				background: transparent;
+				margin-top: auto;
+			}
+
+			.input-form label {
+				position: absolute;
+				bottom: 0px;
+				left: 0%;
+				width: 100%;
+				height: 100%;
+				pointer-events: none;
+				border-bottom: 1px solid #595f6e;
+				color: #595f6e;
+			}
+
+				.input-form label::after {
+					content: "";
+					position: absolute;
+					left: 0px;
+					bottom: -1px;
+					height: 100%;
+					width: 100%;
+					border-bottom: 3px solid #33aadd;
+					transform: translateX(-100%);
+					transition: transform 0.3s ease;
+				}
+
+			.label-content {
+				position: absolute;
+				left: 0px;
+				bottom: 0px;
+
+				transition: all 0.3s ease;
+			}
+
+			.input-form input:focus + .label .label-content,
+			.input-form input:valid + .label .label-content {
+				transform: translateY(-20px);
+				font-size: 14px;
+				color: #33aadd;
+			}
+
+			.input-form input:focus + .label::after,
+			.input-form input:valid + .label::after {
+				transform: translateX(0%);
+			}
+
+			.input-form input[type=number]::-webkit-inner-spin-button, 
+			.input-form input[type=number]::-webkit-outer-spin-button { 
+			  -webkit-appearance: none; 
+			  margin: 0; 
+			}
+
+			.testing {
+				margin: 0px;
+				display: flex;
+				flex-direction: row;
+			}
+
+			.my_device {
+				background-color: rgba(114, 120, 141, 0.2) !important;
+				color: #72788D !important;
+				border: 1px solid #72788D !important;
+			}
+
+			#sendButton {
+				background-color: rgba(220, 237, 44, 0.3) !important;
+				border: 1px solid rgba(220, 237, 44, 1) !important;
+				color: #363537 !important;
+			}
+
+			.my_device.connected {
+			/*
+				background-color: rgba(220, 237, 44, 0.3) !important;
+			*/
+				color: #363537 !important;
+				border: 1px solid rgba(220, 237, 44, 1) !important;
+			}
+
+			.history {
+				display: flex;
+				flex-direction: column;
+				margin-top: 10px;
+				padding-top: 5px;
+				border-top: 1px dotted #33aadd;
+			}
+
+			@media only screen and (max-width: 600px) {
+				.content {
+					width: 90%;
+				}
+			}
+		</style>
+		<script src="./slimCrypt.js"></script>
+		<script src="./slimSHA256.js"></script>
+		<script type="text/javascript">
+			let socket = null;
+			let keys = {}
+			let timers = {};
+			let my_device_id = null;
+			let access_token = null;
+			let incomming_connection = null;
+			let connected_to = null;
+
+			generate_identity((key_type, key_data) => {
+				keys[key_type] = key_data;
+			})
+
+			function setTimer(name, func, time=10) {
+				timers[name] = setInterval(func, time);
+			}
+			function clearTimer(name) {
+				if(typeof timers[name] !== 'undefined') {
+					window.clearInterval(timers[name]);
+					delete(timers[name]);
+					return true;
+				}
+				return false;
+			}
+
+			function handleKeySend(event) {
+				if(event.code == 'Enter') {
+					let struct = {
+						payload: document.querySelector('#partner_id').value,
+						access_token: access_token
+					}
+					socket.send(struct);
+				}
+			}
+
+			function handleKeySendEncrypted(event) {
+				if(event.code == 'Enter') {
+					let key_id = Math.random();
+					generate_key(key_id); // ID
+					setTimer("encrypt", function() {
+						// The only timer we need
+						// is one that waits for the message key to be generated.
+						let key_data = JSON.parse(localStorage.getItem("key_storage"))[key_id];
+						if(key_data && typeof key_data !== "undefined" && sizeOf(key_data.key)) {
+							print('Loading key for device: ' + device)
+							load_key(key_id, function(AES_key, iv) {
+								print('Encrypting message.')
+								encrypt(msg, AES_key, iv, function(encrypted_message) {
+									print('Encrypted done: ' + encrypted_message);
+
+									load_public_key(devices[participant+'@'+domain][device].key, function(public_key) {
+										print('Wrapping key for transport')
+										wrap_AES_key(AES_key, public_key, function(wrapped_AES_key) {
+											setTimer("send_on_verify_msg:"+key_id, function() {
+												if (typeof verified_devices[device] !== "undefined") {
+													if (verified_devices[device]) {
+														//returns an ArrayBuffer containing the encrypted data
+														print("Sending out message struct:");
+
+														let struct = {
+															type: 'message',
+															action: 'send',
+															key: btoa(new Uint8Array(wrapped_AES_key)),
+															message: encrypted_message,
+															"to": to,
+															"device": device,
+															"owner": participant+'@'+domain,
+															"iv": btoa(iv),
+															"access_token": access_token
+														}
+														print(struct);
+														send(struct);
+														clearTimer("send_on_verify_msg:"+key_id);
+													} // else when timer-lifetime: clear timer
+												} else {
+													if(typeof elements["Verify device"] === "undefined") {
+														popup("Verify device", participant+"'s device '" + device + "', needs to be verified in order for messages to be sent to this device.<br><br><b>Fingerprint</b>: " + crc32(devices[participant+'@'+domain][device]['key']['n']).toString(16).toUpperCase() + ' (crc32)', function() {
+															verified_devices[device] = true;
+															document.getElementById('popup').remove();
+														})
+													}
+												}
+											})
+										});
+									})
+								});
+							})
+							clearTimer("encrypt");
+						}
+					});
+
+					let struct = {
+						payload: document.querySelector('#partner_id').value,
+						access_token: access_token
+					}
+					socket.send(struct);
+				}
+			}
+
+			function handleKeyLogin(event) {
+				if(event.code == 'Enter') {
+					let struct = {
+						connect: parseInt(document.querySelector('#partner_id').value, 10),
+						access_token: access_token
+					};
+					socket.send(struct);
+				}
+			}
+
+			function handle_message(payload) {
+				let data = JSON.parse(payload.data);
+				console.log("Got data:", data);
+				if(typeof data['status'] !== 'undefined') {
+					if (data['status'] == 'successful') {
+						if (typeof data['transmission'] !== 'undefined') {
+							document.querySelector('#partner_id').value = '';
+							document.querySelector('#partner_id').focus();
+						} else if (typeof data['connection'] !== 'undefined') {
+							if (data['connection'] == 'pending') {
+								let disconnectButton = document.createElement('button');
+								disconnectButton.classList = 'align-right';
+								disconnectButton.id = 'disconnectButton';
+								disconnectButton.innerHTML = 'Disconnect';
+
+								document.querySelector('#buttons').appendChild(disconnectButton);
+							} else if (data['connection'] == 'accepted') {
+								connected_to = {'device' : data['partner'], 'publicKey' : data['publicKey']}
+
+								document.querySelector('#partner_id').value = '';
+								document.querySelector('#partner_id').focus();
+								document.querySelector('#partner_id').type = 'text';
+								document.querySelector('#partner_id').removeEventListener('keydown', handleKeyLogin);
+								document.querySelector('#partner_id').addEventListener('keydown', handleKeySend);
+
+								document.querySelector('#connectButton').remove();
+								document.querySelector('#acceptButton').remove();
+								// TODO: Implement this: http://jsfiddle.net/pascalockert/jp9gr48f/
+								document.querySelector('#testing').appendChild(
+									document.querySelector('#disconnectButton')
+								);
+								document.querySelector('#disconnectButton').classList = 'align-right disconnect';
+								document.querySelector('#form-area').style.marginTop = '0px';
+								document.querySelector('.label-content').innerHTML = 'Message to partner:';
+
+								document.querySelector('.my_device').classList = 'my_device connected';
+
+								let sendButton = document.createElement('button');
+								sendButton.id = 'sendButton';
+								sendButton.innerHTML = 'Send message';
+								sendButton.addEventListener('click', () => {
+									let struct = {
+										payload: document.querySelector('#partner_id').value,
+										access_token: access_token
+									}
+									socket.send(struct);
+								})
+
+								document.querySelector('#buttons').appendChild(sendButton);
+							}
+						} else if (typeof data['device_id'] !== 'undefined' && typeof data['access_token'] !== 'undefined') {
+							my_device_id = data['device_id'];
+							access_token = data['access_token'];
+
+							let my_device = document.createElement('button');
+							my_device.classList = 'my_device';
+							my_device.id = 'my_device';
+							my_device.innerHTML = 'Your ID: #<b>'+my_device_id+'</b>';
+
+							document.querySelector('#testing').appendChild(
+								my_device
+							);
+						}
+					} else if (data['status'] == 'pending') {
+						if (typeof data['connection_from'] !== 'undefined') {
+							incomming_connection = data['connection_from'];
+
+							let acceptButton = document.createElement('button');
+							let disconnectButton = document.createElement('button');
+							
+							disconnectButton.innerHTML = 'Disconnect';
+							disconnectButton.id = 'disconnectButton';
+							disconnectButton.addEventListener('click', () => {
+								let struct = {
+									decline: incomming_connection,
+									access_token: access_token
+								}
+								socket.send(struct);
+							})
+
+							acceptButton.classList = 'align-right';
+							acceptButton.id = 'acceptButton';
+							acceptButton.innerHTML = 'Accept ' + incomming_connection;
+							acceptButton.addEventListener('click', () => {
+								let struct = {
+									accept: incomming_connection,
+									access_token: access_token
+								}
+								socket.send(struct);
+							})
+
+							document.querySelector('#buttons').appendChild(acceptButton);
+							document.querySelector('#buttons').appendChild(disconnectButton);
+						}
+					} else if (data['status'] == 'accepted' && typeof data['publicKey'] !== 'undefined') {
+						connected_to = {'device' : data['connection_to'], 'publicKey' : data['publicKey']}
+
+						document.querySelector('#partner_id').value = '';
+						document.querySelector('#partner_id').focus();
+						document.querySelector('#partner_id').type = 'text';
+						document.querySelector('#partner_id').removeEventListener('keydown', handleKeyLogin);
+						document.querySelector('#partner_id').addEventListener('keydown', handleKeySend);
+						document.querySelector('#connectButton').remove();
+
+						document.querySelector('.my_device').classList = 'my_device connected';
+
+						// TODO: Implement this: http://jsfiddle.net/pascalockert/jp9gr48f/
+						document.querySelector('#testing').appendChild(
+							document.querySelector('#disconnectButton')
+						);
+						document.querySelector('#form-area').style.marginTop = '0px';
+						document.querySelector('#disconnectButton').classList = 'align-right disconnect';
+						document.querySelector('.label-content').innerHTML = 'Message to partner:';
+
+						let sendButton = document.createElement('button');
+						sendButton.id = 'sendButton';
+						sendButton.innerHTML = 'Send message';
+
+						sendButton.addEventListener('click', () => {
+							let struct = {
+								payload: document.querySelector('#partner_id').value,
+								access_token: access_token
+							}
+							socket.send(struct);
+						})
+
+						document.querySelector('#buttons').appendChild(sendButton);
+					}
+				} else {
+					if (typeof data['payload'] !== 'undefined') {
+						let history_item = document.createElement('span');
+						let history_container = document.querySelector('.history');
+						history_item.innerHTML = data['payload'];
+						history_container.insertBefore(history_item, history_container.firstChild);
+					}
+				}
+			}
+			
+			// Loading JavaScript from a cross-site resource is blocked.
+			// But there's nothing stopping us from downloading the script
+			// as a text-blob and placing it within the <script> </ script> tags,
+			// which causes the browser to parse it, but not as a forrain object.
+			//
+			// #LoadingScriptsFromGithub
+			var script = document.createElement('script');
+			script.type = 'text/javascript';
+
+			let xhr = new XMLHttpRequest();
+			xhr.open("GET", 'https://raw.githubusercontent.com/Torxed/slimWebSocket/master/slimWebSocket.js', true);
+			xhr.onreadystatechange = function() {
+				if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+					script.innerHTML = this.responseText;
+					document.head.appendChild(script);
+
+					socket = new slimWebSocket('wss://drop-api.hvornum.se');
+
+					socket.socket.addEventListener('message', function(data) {
+						handle_message(data);
+					});
+
+					setTimer('register', () => {
+						if(typeof keys['publicKey'] !== 'undefined') {
+							console.log('Registring public key:', keys['publicKey'].n.substr(0, 10));
+							let struct = {
+								register: 'publicKey',
+								keydata: keys['publicKey']
+							}
+							socket.send(struct);
+							clearTimer('register');
+						}
+					}, 10)
+				}
+			}
+			xhr.send();
+		</script>
+		<script type="text/javascript">
+			window.onload = function() {
+				document.querySelector('#connectButton').addEventListener('click', (event) => {
+					let struct = {
+						connect: parseInt(document.querySelector('#partner_id').value, 10),
+						access_token: access_token
+					};
+					socket.send(struct);
+				});
+
+				document.querySelector('#partner_id').addEventListener('keydown', handleKeyLogin);
+			}
+		</script>
+	</head>
+	<body>
+		<div class="content">
+			<div class="testing" id="testing">
+			</div>
+			<div class="form-area" id="form-area">
+				<div class="input-form" id="input-form">
+					<input type="number" id="partner_id"  required autocomplete="off" />
+					<label class="label">
+						<span class="label-content">Partner #Number</span>
+					</label>
+				</div>
+				<div class="buttons" id="buttons">
+					<button id="connectButton">Connect to partner</button>
+				</div>
+				<div class="history">
+				</div>
+			</div>
+		</div>
+	</body>
+</html>
