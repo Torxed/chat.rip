@@ -1,0 +1,6 @@
+[submodule "spiderWeb"]
+	path = spiderWeb
+	url = https://github.com/Torxed/spiderWeb.git
+[submodule "slimCrypt"]
+	path = slimCrypt
+	url = https://github.com/Torxed/slimCrypt.git
