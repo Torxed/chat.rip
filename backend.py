@@ -1,4 +1,4 @@
-import spiderWeb
+from spiderWeb import spiderWeb
 from os import urandom
 from hashlib import sha512
 from random import randint
