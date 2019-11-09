@@ -36,7 +36,7 @@
 			}
 
 			.buttons button,
-			.testing button {
+			.top-menu button {
 				width: 180px;
 				padding: 8px;
 				margin-top: 5px;
@@ -136,7 +136,7 @@
 			  margin: 0; 
 			}
 
-			.testing {
+			.top-menu {
 				margin: 0px;
 				display: flex;
 				flex-direction: row;
@@ -172,7 +172,11 @@
 				overflow: auto;
 			}
 
-			@media only screen and (max-width: 600px) {
+			.history > img {
+				max-width: 100%;
+			}
+
+			@media only screen and (max-width: 800px) {
 				.content {
 					width: 90%;
 				}
@@ -188,6 +192,9 @@
 			let access_token = null;
 			let incomming_connection = null;
 			let connected_to = null;
+			let files = {};
+			let uploads = {};
+			let last_file_status = new Date().getTime() / 1000;
 
 			generate_identity((key_type, key_data) => {
 				keys[key_type] = key_data;
@@ -214,7 +221,7 @@
 								'key' : wrapped_key,
 								'iv' : btoa(encrypt_struct['iv']),
 								'key_format' : encrypt_struct['key_format'],
-								"access_token": access_token
+								'access_token': access_token
 							}
 							socket.send(struct);
 						});
@@ -254,18 +261,63 @@
 					};
 					socket.send(struct);
 				}
+			}
 
+			function send_encrypted_data(data) {
+				
+			}
+
+			function uploadFile(data, file_info) {
 				/*
-				let struct = {
-					key: btoa(new Uint8Array(wrapped_AES_key)),
-					payload: encrypted_message,
-					"to": to,
-					"device": device,
-					"owner": participant+'@'+domain,
-					"iv": btoa(iv),
-					"access_token": access_token
-				}
+				file_info.name;
+				file_info.type;
+				file_info.size;
 				*/
+				let pos = 0;
+				let chunk_size = 1024;
+				let chunks = Math.ceil(data.length / chunk_size);
+				let chunk_id = 1;
+				while(pos < data.length) {
+					let chunk_nr = chunk_id;
+					let chunk = data.slice(pos, pos+chunk_size);
+					generate_one_time_key((one_time_key) => {
+						encrypt_with_key(chunk, one_time_key, (encrypt_struct) => {
+							wrap_key_in_pubkey(encrypt_struct, one_time_key, connected_to['publicKey'], (wrapped_key) => {
+								let struct = {
+									'chunk': encrypt_struct['b64_encrypted_payload'],
+									'chunks' : chunks,
+									'chunk_id' : chunk_nr,
+									'file_meta' : file_info,
+									'key' : wrapped_key,
+									'iv' : btoa(encrypt_struct['iv']),
+									'key_format' : encrypt_struct['key_format'],
+									'access_token': access_token
+								}
+								socket.send(struct);
+								if(typeof uploads[file_info['name']] === 'undefined')
+									uploads[file_info['name']] = {'chunks' : {}, 'chunk_count' : chunks};
+								uploads[file_info['name']]['chunks'][chunk_nr] = struct;
+
+								if (chunk_nr >= chunks) {
+									console.log('All chunks sent, starting upload guardian.');
+									setTimer('uploadCheck', function(){
+										if((new Date().getTime() / 1000) - last_file_status > 1) {
+											console.log('Sent checksum check for ' + file_info['name'])
+											let struct = {
+												'chunk_checksum': chunks,
+												'filename' : file_info['name'],
+												'access_token': access_token
+											}
+											socket.send(struct);
+										}
+									}, 1000)
+								}
+							});
+						});
+					})
+					pos += chunk_size;
+					chunk_id += 1;
+				}
 			}
 
 			function handle_message(payload) {
@@ -273,9 +325,27 @@
 				console.log("Got data:", data);
 				if(typeof data['status'] !== 'undefined') {
 					if (data['status'] == 'successful') {
-						if (typeof data['transmission'] !== 'undefined') {
+						if (typeof data['transmission'] !== 'undefined' && data['chunk'] === 'undefined') {
 							document.querySelector('#partner_id').value = '';
 							document.querySelector('#partner_id').focus();
+						} else if (typeof data['checksum'] !== 'undefined') {
+							if(data['checksum'] == false) {
+								Object.keys(data['missing_chunks']).forEach((chunk_id) => {
+									socket.send(uploads[data['filename']]['chunks'][chunk_id]);
+								})
+								let struct = {
+									'chunk_checksum': uploads[data['filename']]['chunk_count'],
+									'filename' : data['filename'],
+									'access_token': access_token
+								}
+								socket.send(struct);
+							} else {
+								clearTimer('uploadCheck');
+							}
+						} else if (typeof data['chunk'] !== 'undefined' && typeof data['transmission'] !== 'undefined') {
+							console.log('Updating', last_file_status);
+							last_file_status = new Date().getTime() / 1000;
+							console.log('Updated timer:', last_file_status);
 						} else if (typeof data['connection'] !== 'undefined') {
 							if (data['connection'] == 'pending') {
 								let disconnectButton = document.createElement('button');
@@ -295,8 +365,9 @@
 
 								document.querySelector('#connectButton').remove();
 								document.querySelector('#acceptButton').remove();
+
 								// TODO: Implement this: http://jsfiddle.net/pascalockert/jp9gr48f/
-								document.querySelector('#testing').appendChild(
+								document.querySelector('#top-menu').appendChild(
 									document.querySelector('#disconnectButton')
 								);
 								document.querySelector('#disconnectButton').classList = 'align-right disconnect';
@@ -311,8 +382,36 @@
 								sendButton.addEventListener('click', () => {
 									send_encrypted_data(document.querySelector('#partner_id').value);
 								})
-
 								document.querySelector('#buttons').appendChild(sendButton);
+
+								let sendDocumentButton = document.createElement('button');
+								sendDocumentButton.classList = 'align-right';
+								sendDocumentButton.id = 'sendDocumentButton';
+								sendDocumentButton.innerHTML = 'Send Document';
+								sendDocumentButton.addEventListener('click', (event) => {
+									let fileDOM = document.createElement('input');
+									fileDOM.type = 'file';
+									fileDOM.id = 'fileInput';
+
+									fileDOM.addEventListener('change', (event) => {
+										if (fileDOM.files && fileDOM.files[0]) {
+											for(let i = 0; i < fileDOM.files.length; i++) {
+												let file = fileDOM.files[i];
+												let reader = new FileReader();
+												reader.addEventListener('load', (event) => {
+													if(event.loaded >= event.total) {
+														uploadFile(event.target.result, {'name' : file.name, 'size' : file.size, 'type' : file.type});
+													}
+												});
+												reader.readAsBinaryString(file);
+											}
+										}
+									})
+
+									fileDOM.click();
+								})
+								document.querySelector('#buttons').appendChild(sendDocumentButton);
+
 								let history = document.createElement('div');
 								history.classList = 'history';
 								document.querySelector('#form-area').appendChild(history);
@@ -327,7 +426,7 @@
 							my_device.id = 'my_device';
 							my_device.innerHTML = 'Your ID: #<b>'+my_device_id+'</b>';
 
-							document.querySelector('#testing').appendChild(
+							document.querySelector('#top-menu').appendChild(
 								my_device
 							);
 						}
@@ -375,7 +474,7 @@
 						document.querySelector('.my_device').classList = 'my_device connected';
 
 						// TODO: Implement this: http://jsfiddle.net/pascalockert/jp9gr48f/
-						document.querySelector('#testing').appendChild(
+						document.querySelector('#top-menu').appendChild(
 							document.querySelector('#disconnectButton')
 						);
 						document.querySelector('#form-area').style.marginTop = '0px';
@@ -395,6 +494,34 @@
 						history.classList = 'history';
 						document.querySelector('#form-area').appendChild(history);
 						document.querySelector('#form-area').classList = 'form-area history-loaded'
+
+						let sendDocumentButton = document.createElement('button');
+						sendDocumentButton.classList = 'align-right';
+						sendDocumentButton.id = 'sendDocumentButton';
+						sendDocumentButton.innerHTML = 'Send Document';
+						sendDocumentButton.addEventListener('click', (event) => {
+							let fileDOM = document.createElement('input');
+							fileDOM.type = 'file';
+							fileDOM.id = 'fileInput';
+
+							fileDOM.addEventListener('change', (event) => {
+								if (fileDOM.files && fileDOM.files[0]) {
+									for(let i = 0; i < fileDOM.files.length; i++) {
+										let file = fileDOM.files[i];
+										let reader = new FileReader();
+										reader.addEventListener('load', (event) => {
+											if(event.loaded >= event.total) {
+												uploadFile(event.target.result, {'name' : file.name, 'size' : file.size, 'type' : file.type});
+											}
+										});
+										reader.readAsBinaryString(file);
+									}
+								}
+							})
+
+							fileDOM.click();
+						})
+						document.querySelector('#buttons').appendChild(sendDocumentButton);
 					}
 				} else {
 					if (typeof data['payload'] !== 'undefined') {
@@ -405,48 +532,80 @@
 							history_container.insertBefore(history_item, history_container.firstChild);
 						})
 
+					} else if (typeof data['chunk'] !== 'undefined') {
+						if(typeof files[data['file_meta']['name']] === 'undefined') {
+							files[data['file_meta']['name']] = {
+								'total_chunks' : data['chunks'],
+								'chunks' : {},
+								'type' : data['file_meta']['type'],
+								'size' : data['file_meta']['size'],
+								'name' : data['file_meta']['name']
+							}
+						}
+
+						let array = JSON.parse("["+atob(data['chunk'])+"]");
+						let encrypted_message = new Uint8Array(array);
+						let one_time_key_wrapped = new Uint8Array(JSON.parse("["+atob(data['key'])+"]"));
+						let chunk_id = data['chunk_id'];
+						let filename = data['file_meta']['name'];
+
+					//	if(typeof document.querySelector('#'+data['file_meta']['name']) === 'undefined') {
+					//		let documentPlaceholder = document.createElement('div');
+
+
+					//	}
+
+
+						load_private_key(keys['privateKey'], (privateKey) => {
+							extract_one_time_key(one_time_key_wrapped, privateKey, (one_time_key) => {
+								let options = {
+									name: data['key_format'],
+									iv: new Uint8Array(JSON.parse("["+atob(data['iv'])+"]"))
+								};
+								decrypt_with_key(options, one_time_key, encrypted_message, (decrypted_message) => {
+									files[filename]['chunks'][chunk_id] = decrypted_message;
+
+									console.log(Object.keys(files[filename]['chunks']).length);
+									console.log(files[filename]['total_chunks'])
+
+									let chunks = Object.keys(files[filename]['chunks']);
+									if(chunks.length >= files[filename]['total_chunks']) {
+										let data = '';
+										chunks.forEach((chunk_id) => {
+											data += files[filename]['chunks'][chunk_id];
+										})
+										let img = document.createElement('img');
+										img.src = 'data:image/jpeg;charset=utf-8;base64,'+btoa(data);
+										let history_container = document.querySelector('.history');
+										history_container.insertBefore(img, history_container.firstChild);
+									}
+								});
+							});
+						});
 					}
 				}
 			}
-			
-			// Loading JavaScript from a cross-site resource is blocked.
-			// But there's nothing stopping us from downloading the script
-			// as a text-blob and placing it within the <script> </ script> tags,
-			// which causes the browser to parse it, but not as a forrain object.
-			//
-			// #LoadingScriptsFromGithub
-			var script = document.createElement('script');
-			script.type = 'text/javascript';
-
-			let xhr = new XMLHttpRequest();
-			xhr.open("GET", 'https://raw.githubusercontent.com/Torxed/slimWebSocket/master/slimWebSocket.js', true);
-			xhr.onreadystatechange = function() {
-				if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
-					script.innerHTML = this.responseText;
-					document.head.appendChild(script);
-
-					socket = new slimWebSocket('wss://drop-api.hvornum.se');
-
-					socket.socket.addEventListener('message', function(data) {
-						handle_message(data);
-					});
-
-					setTimer('register', () => {
-						if(typeof keys['publicKey'] !== 'undefined') {
-							console.log('Registring public key:', keys['publicKey'].n.substr(0, 10));
-							let struct = {
-								register: 'publicKey',
-								keydata: keys['publicKey']
-							}
-							socket.send(struct);
-							clearTimer('register');
-						}
-					}, 10)
-				}
-			}
-			xhr.send();
 		</script>
+		<script type="text/javascript" src="./slimWebSocket/slimWebSocket.js"></script>
 		<script type="text/javascript">
+			socket = new slimWebSocket('wss://drop-api.hvornum.se');
+
+			socket.socket.addEventListener('message', function(data) {
+				handle_message(data);
+			});
+
+			setTimer('register', () => {
+				if(typeof keys['publicKey'] !== 'undefined') {
+					console.log('Registring public key:', keys['publicKey'].n.substr(0, 10));
+					let struct = {
+						register: 'publicKey',
+						keydata: keys['publicKey']
+					}
+					socket.send(struct);
+					clearTimer('register');
+				}
+			}, 10)
+
 			window.onload = function() {
 				document.querySelector('#connectButton').addEventListener('click', (event) => {
 					let struct = {
@@ -462,7 +621,7 @@
 	</head>
 	<body>
 		<div class="content">
-			<div class="testing" id="testing">
+			<div class="top-menu" id="top-menu">
 			</div>
 			<div class="form-area" id="form-area">
 				<div class="input-form" id="input-form">

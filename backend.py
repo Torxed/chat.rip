@@ -6,6 +6,7 @@ import json
 
 clients = {}
 access_tokens = {}
+chunks = {}
 
 def gen_id(entropy_length=256):
 	return sha512(urandom(entropy_length)).hexdigest()
@@ -25,6 +26,46 @@ class parser():
 			sockets[partner_info['fileno']]['socket'].send(payload)
 
 			yield {'status' : 'successful', 'transmission' : 'sent'}
+
+		elif 'chunk' in data and 'access_token' in data:
+			if not data['access_token'] in access_tokens:
+				yield {'status' : 'failed', 'reason' : 'Invalid or expired access token.'}
+				return
+
+			sender_device_id = access_tokens[data['access_token']]
+			partner_info = clients[sender_device_id]['connected_to']
+
+			payload = {**data}
+			del(payload['access_token'])
+			#print(' >> ', payload['chunk_id'])
+			sockets[partner_info['fileno']]['socket'].send(payload)
+
+			if not fileno in chunks:
+				chunks[fileno] = {}
+			filename = data['file_meta']['name']
+			if not filename in chunks[fileno]:
+				chunks[fileno][filename] = {}
+				for i in range(1, data['chunks']):
+					chunks[fileno][filename][i] = False
+			chunks[fileno][filename][data['chunk_id']] = True
+
+			yield {'status' : 'successful', 'transmission' : 'sent', 'chunk' : data['chunk_id']}
+
+		elif 'chunk_checksum' in data and 'access_token' in data:
+			if not data['access_token'] in access_tokens:
+				yield {'status' : 'failed', 'reason' : 'Invalid or expired access token.'}
+				return
+
+			filename = data['filename']
+			missing = dict(filter(lambda elem: elem[1] == False, chunks[fileno][filename].items()))
+			checksum = len(chunks[fileno][filename])-len(missing) >= data['chunk_checksum']
+			print(f'Checking checksum for file {filename} [{checksum}]:', len(chunks[fileno][filename])-len(missing), data['chunk_checksum'])
+
+
+			if checksum:
+				del(chunks[fileno][filename])
+
+			yield {'status' : 'successful', 'filename' : filename, 'checksum' : checksum, 'missing_chunks' : missing}
 
 		elif 'connect' in data and 'access_token' in data:
 			if not data['access_token'] in access_tokens:

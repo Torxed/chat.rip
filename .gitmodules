@@ -4,3 +4,6 @@
 [submodule "slimCrypt"]
 	path = slimCrypt
 	url = https://github.com/Torxed/slimCrypt.git
+[submodule "slimWebSocket"]
+	path = slimWebSocket
+	url = https://github.com/Torxed/slimWebSocket.git
