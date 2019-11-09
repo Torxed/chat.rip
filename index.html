@@ -176,6 +176,15 @@
 				max-width: 100%;
 			}
 
+			.history > span.outgoing:before {
+				content: "\2b08";
+				color: #33aadd;
+			}
+			.history > span.incomming:before {
+				content: "\2b0b";
+				color: #2E4057;
+			}
+
 			.file {
 				padding: 5px;
 				border: 1px solid rgba(114, 120, 141, 0.2)
@@ -239,8 +248,7 @@
 
 			function handleKeySendEncrypted(event, keyboard_event=true) {
 				if(keyboard_event && event.key == 'Enter') {
-					send_encrypted_data(document.querySelector('#partner_id').value);
-					document.querySelector('#partner_id').value = '';
+					send_encrypted_data();
 				}
 			}
 
@@ -272,9 +280,18 @@
 				}
 			}
 
-			function send_encrypted_data(data) {
+			function send_encrypted_data() {
+				let history_container = document.querySelector('.history');
+				let text = document.querySelector('#partner_id').value;
+				let span = document.createElement('span');
+				document.querySelector('#partner_id').value = '';
+
+				span.classList = 'outgoing';
+				span.innerHTML = text;
+				history_container.insertBefore(span, history_container.firstChild);
+
 				generate_one_time_key((one_time_key) => {
-					encrypt_with_key(data, one_time_key, (encrypt_struct) => {
+					encrypt_with_key(text, one_time_key, (encrypt_struct) => {
 						wrap_key_in_pubkey(encrypt_struct, one_time_key, connected_to['publicKey'], (wrapped_key) => {
 							let struct = {
 								'payload' : encrypt_struct['b64_encrypted_payload'],
@@ -283,7 +300,7 @@
 								'key_format' : encrypt_struct['key_format'],
 								'access_token': access_token
 							}
-						socket.send(struct);
+							socket.send(struct);
 						});
 					});
 				})
@@ -323,7 +340,6 @@
 					documentPlaceholder.appendChild(title);
 					documentPlaceholder.appendChild(progressbar);
 
-					console.log('Inserting:', documentPlaceholder)
 					let history_container = document.querySelector('.history');
 					history_container.insertBefore(documentPlaceholder, history_container.firstChild);
 				}
@@ -449,7 +465,7 @@
 								sendButton.id = 'sendButton';
 								sendButton.innerHTML = 'Send message';
 								sendButton.addEventListener('click', () => {
-									handleKeySendEncrypted(document.querySelector('#partner_id').value, false);
+									send_encrypted_data();
 								})
 								document.querySelector('#buttons').appendChild(sendButton);
 
@@ -555,7 +571,7 @@
 						sendButton.innerHTML = 'Send message';
 
 						sendButton.addEventListener('click', () => {
-							send_encrypted_data(document.querySelector('#partner_id').value);
+							send_encrypted_data();
 						})
 
 						document.querySelector('#buttons').appendChild(sendButton);
@@ -597,6 +613,7 @@
 						decryptMessage(data['payload'], {'iv' : data['iv'], 'key_format' : data['key_format'], 'key' : data['key']}, (decrypted) => {
 							let history_item = document.createElement('span');
 							let history_container = document.querySelector('.history');
+							history_item.classList = 'incomming';
 							history_item.innerHTML = decrypted;
 							history_container.insertBefore(history_item, history_container.firstChild);
 						})
