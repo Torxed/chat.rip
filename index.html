@@ -237,26 +237,10 @@
 				return false;
 			}
 
-			function send_encrypted_data(data) {
-				generate_one_time_key((one_time_key) => {
-					encrypt_with_key(data, one_time_key, (encrypt_struct) => {
-						wrap_key_in_pubkey(encrypt_struct, one_time_key, connected_to['publicKey'], (wrapped_key) => {
-							let struct = {
-								'payload': encrypt_struct['b64_encrypted_payload'],
-								'key' : wrapped_key,
-								'iv' : btoa(encrypt_struct['iv']),
-								'key_format' : encrypt_struct['key_format'],
-								'access_token': access_token
-							}
-							socket.send(struct);
-						});
-					});
-				})
-			}
-
-			function handleKeySendEncrypted(event) {
-				if(event.code == 'Enter') {
+			function handleKeySendEncrypted(event, keyboard_event=true) {
+				if(keyboard_event && event.key == 'Enter') {
 					send_encrypted_data(document.querySelector('#partner_id').value);
+					document.querySelector('#partner_id').value = '';
 				}
 			}
 
@@ -279,7 +263,7 @@
 			}
 
 			function handleKeyLogin(event) {
-				if(event.code == 'Enter') {
+				if(event.key == 'Enter') {
 					let struct = {
 						connect: parseInt(document.querySelector('#partner_id').value, 10),
 						access_token: access_token
@@ -289,7 +273,20 @@
 			}
 
 			function send_encrypted_data(data) {
-				
+				generate_one_time_key((one_time_key) => {
+					encrypt_with_key(data, one_time_key, (encrypt_struct) => {
+						wrap_key_in_pubkey(encrypt_struct, one_time_key, connected_to['publicKey'], (wrapped_key) => {
+							let struct = {
+								'payload' : encrypt_struct['b64_encrypted_payload'],
+								'key' : wrapped_key,
+								'iv' : btoa(encrypt_struct['iv']),
+								'key_format' : encrypt_struct['key_format'],
+								'access_token': access_token
+							}
+						socket.send(struct);
+						});
+					});
+				})
 			}
 
 			function uploadFile(data, file_info) {
@@ -432,8 +429,8 @@
 								document.querySelector('#partner_id').value = '';
 								document.querySelector('#partner_id').focus();
 								document.querySelector('#partner_id').type = 'text';
-								document.querySelector('#partner_id').removeEventListener('keydown', handleKeyLogin);
-								document.querySelector('#partner_id').addEventListener('keydown', handleKeySendEncrypted);
+								document.querySelector('#partner_id').removeEventListener('keyup', handleKeyLogin);
+								document.querySelector('#partner_id').addEventListener('keyup', handleKeySendEncrypted);
 
 								document.querySelector('#connectButton').remove();
 								document.querySelector('#acceptButton').remove();
@@ -452,7 +449,7 @@
 								sendButton.id = 'sendButton';
 								sendButton.innerHTML = 'Send message';
 								sendButton.addEventListener('click', () => {
-									send_encrypted_data(document.querySelector('#partner_id').value);
+									handleKeySendEncrypted(document.querySelector('#partner_id').value, false);
 								})
 								document.querySelector('#buttons').appendChild(sendButton);
 
@@ -539,8 +536,8 @@
 						document.querySelector('#partner_id').value = '';
 						document.querySelector('#partner_id').focus();
 						document.querySelector('#partner_id').type = 'text';
-						document.querySelector('#partner_id').removeEventListener('keydown', handleKeyLogin);
-						document.querySelector('#partner_id').addEventListener('keydown', handleKeySendEncrypted);
+						document.querySelector('#partner_id').removeEventListener('keyup', handleKeyLogin);
+						document.querySelector('#partner_id').addEventListener('keyup', handleKeySendEncrypted);
 						document.querySelector('#connectButton').remove();
 
 						document.querySelector('.my_device').classList = 'my_device connected';
@@ -723,7 +720,7 @@
 					socket.send(struct);
 				});
 
-				document.querySelector('#partner_id').addEventListener('keydown', handleKeyLogin);
+				document.querySelector('#partner_id').addEventListener('keyup', handleKeyLogin);
 			}
 		</script>
 	</head>
