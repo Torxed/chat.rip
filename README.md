@@ -1,4 +1,4 @@
-# chat.rip
+# https://chat.rip
 
 Client-side encrypted file/message delivery service.<br>
 Verifiable transfer security by verifying outgoings packets signatures against the locally stored key.
