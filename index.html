@@ -172,9 +172,35 @@
 				overflow: auto;
 			}
 
-			.history > img {
+			.history > * > img {
 				max-width: 100%;
 			}
+
+			.file {
+				padding: 5px;
+				border: 1px solid rgba(114, 120, 141, 0.2)
+			}
+
+			.progressbar {
+				height: 20px;
+				background-color: rgba(114, 120, 141, 0.2);
+				overflow: hidden;
+				display: flex;
+				flex-direction: row;
+			}
+
+			.progressbar > .progress {
+				height: 100%;
+				background-color: rgba(114, 120, 141, 0.2);
+				min-width: 1%;
+				flex-grow: 1;
+			}
+
+			.progressbar > .progress.uploading { background-color: rgba(114, 120, 141, 0.2); }
+			.progressbar > .progress.transfered { background-color: rgba(114, 255, 141, 0.5); }
+			.progressbar > .progress.delivered { background-color: rgba(114, 255, 141, 1); }
+			.progressbar > .progress.error { background-color: rgba(255, 80, 90, 1); }
+			.progressbar > .progress.complete { background-color: rgba(220, 237, 44, 1); }
 
 			@media only screen and (max-width: 800px) {
 				.content {
@@ -273,10 +299,39 @@
 				file_info.type;
 				file_info.size;
 				*/
+				file_info['file_id'] = random_string().replace(/-/g, '+').replace(/_/g, '/').replace(/=/g, '');
 				let pos = 0;
 				let chunk_size = 1024;
 				let chunks = Math.ceil(data.length / chunk_size);
 				let chunk_id = 1;
+				let chunk_ratio_percentage = 100/chunks;
+
+				let placeholder = document.querySelector('#'+file_info['file_id']);
+				if(typeof placeholder === 'undefined' || placeholder === null) {
+					let documentPlaceholder = document.createElement('div');
+					documentPlaceholder.id = file_info['file_id'];
+					documentPlaceholder.classList = 'file uploading'
+					
+					let title = document.createElement('div');
+					title.classList = 'title';
+					title.innerHTML = file_info.name;
+
+					let progressbar = document.createElement('div');
+					progressbar.classList = 'progressbar';
+					for (let i=0; i<Math.min(chunks, 100); i++) {
+						let progress = document.createElement('div');
+						progress.classList = 'progress';
+						progressbar.appendChild(progress);
+					}
+
+					documentPlaceholder.appendChild(title);
+					documentPlaceholder.appendChild(progressbar);
+
+					console.log('Inserting:', documentPlaceholder)
+					let history_container = document.querySelector('.history');
+					history_container.insertBefore(documentPlaceholder, history_container.firstChild);
+				}
+
 				while(pos < data.length) {
 					let chunk_nr = chunk_id;
 					let chunk = data.slice(pos, pos+chunk_size);
@@ -293,6 +348,13 @@
 									'key_format' : encrypt_struct['key_format'],
 									'access_token': access_token
 								}
+
+								let percent = chunk_nr;
+								if(chunks > 100)
+									percent = Math.ceil(chunk_ratio_percentage * chunk_nr);
+								let placeholder = document.querySelector('#'+file_info['file_id'])
+								placeholder.querySelector('.progressbar').children[percent-1].classList = 'progress transfered';
+
 								socket.send(struct);
 								if(typeof uploads[file_info['name']] === 'undefined')
 									uploads[file_info['name']] = {'chunks' : {}, 'chunk_count' : chunks};
@@ -300,6 +362,13 @@
 
 								if (chunk_nr >= chunks) {
 									console.log('All chunks sent, starting upload guardian.');
+									console.log('Sent checksum check for ' + file_info['name'])
+									let struct = {
+										'chunk_checksum': chunks,
+										'filename' : file_info['name'],
+										'access_token': access_token
+									}
+									socket.send(struct);
 									setTimer('uploadCheck', function(){
 										if((new Date().getTime() / 1000) - last_file_status > 1) {
 											console.log('Sent checksum check for ' + file_info['name'])
@@ -322,7 +391,6 @@
 
 			function handle_message(payload) {
 				let data = JSON.parse(payload.data);
-				console.log("Got data:", data);
 				if(typeof data['status'] !== 'undefined') {
 					if (data['status'] == 'successful') {
 						if (typeof data['transmission'] !== 'undefined' && data['chunk'] === 'undefined') {
@@ -343,9 +411,14 @@
 								clearTimer('uploadCheck');
 							}
 						} else if (typeof data['chunk'] !== 'undefined' && typeof data['transmission'] !== 'undefined') {
-							console.log('Updating', last_file_status);
 							last_file_status = new Date().getTime() / 1000;
-							console.log('Updated timer:', last_file_status);
+							let placeholder = document.querySelector('#'+data['file_id']);
+							let chunk_ratio_percentage = 100/data['chunks'];
+							let percent = data['chunk'];
+							if(data['chunks'] > 100)
+								percent = Math.ceil(chunk_ratio_percentage * data['chunk']);
+							placeholder.querySelector('.progressbar').children[percent-1].classList = 'progress delivered';
+							// transform: translateX(-100%);
 						} else if (typeof data['connection'] !== 'undefined') {
 							if (data['connection'] == 'pending') {
 								let disconnectButton = document.createElement('button');
@@ -537,6 +610,7 @@
 							files[data['file_meta']['name']] = {
 								'total_chunks' : data['chunks'],
 								'chunks' : {},
+								'file_id' : data['file_meta']['file_id'],
 								'type' : data['file_meta']['type'],
 								'size' : data['file_meta']['size'],
 								'name' : data['file_meta']['name']
@@ -549,12 +623,38 @@
 						let chunk_id = data['chunk_id'];
 						let filename = data['file_meta']['name'];
 
-					//	if(typeof document.querySelector('#'+data['file_meta']['name']) === 'undefined') {
-					//		let documentPlaceholder = document.createElement('div');
+						let placeholder = document.querySelector('#'+data['file_meta']['file_id']);
+						if(typeof placeholder === 'undefined' || placeholder === null) {
+							let documentPlaceholder = document.createElement('div');
+							documentPlaceholder.id = data['file_meta']['file_id'];
+							documentPlaceholder.classList = 'file transfered'
+							
+							let title = document.createElement('div');
+							title.classList = 'title';
+							title.innerHTML = filename;
 
+							let progressbar = document.createElement('div');
+							progressbar.classList = 'progressbar';
+							for (let i=0; i<Math.min(data['chunks'], 100); i++) {
+								let progress = document.createElement('div');
+								progress.classList = 'progress';
+								progressbar.appendChild(progress);
+							}
 
-					//	}
+							documentPlaceholder.appendChild(title);
+							documentPlaceholder.appendChild(progressbar);
 
+							console.log('Inserting:', documentPlaceholder)
+							let history_container = document.querySelector('.history');
+							history_container.insertBefore(documentPlaceholder, history_container.firstChild);
+						}
+
+						let chunk_ratio_percentage = 100/data['chunks'];
+						let percent = data['chunk_id'];
+						if(data['chunks'] > 100)
+							percent = Math.ceil(chunk_ratio_percentage * data['chunk_id']);
+						placeholder = document.querySelector('#'+data['file_meta']['file_id'])
+						placeholder.querySelector('.progressbar').children[percent-1].classList = 'progress transfered';
 
 						load_private_key(keys['privateKey'], (privateKey) => {
 							extract_one_time_key(one_time_key_wrapped, privateKey, (one_time_key) => {
@@ -565,8 +665,10 @@
 								decrypt_with_key(options, one_time_key, encrypted_message, (decrypted_message) => {
 									files[filename]['chunks'][chunk_id] = decrypted_message;
 
-									console.log(Object.keys(files[filename]['chunks']).length);
-									console.log(files[filename]['total_chunks'])
+									let dec_percent = chunk_id;
+									if(data['chunks'] > 100)
+										dec_percent = Math.ceil(chunk_ratio_percentage * chunk_id);
+									placeholder.querySelector('.progressbar').children[dec_percent-1].classList = 'progress delivered';
 
 									let chunks = Object.keys(files[filename]['chunks']);
 									if(chunks.length >= files[filename]['total_chunks']) {
@@ -574,10 +676,17 @@
 										chunks.forEach((chunk_id) => {
 											data += files[filename]['chunks'][chunk_id];
 										})
+										let a = document.createElement('a');
+										a.href = 'data:image/jpeg;charset=utf-8;base64,'+btoa(data);
+										a.download = filename;
 										let img = document.createElement('img');
+										img.name = filename;
 										img.src = 'data:image/jpeg;charset=utf-8;base64,'+btoa(data);
+										a.appendChild(img);
+
+										placeholder.remove();
 										let history_container = document.querySelector('.history');
-										history_container.insertBefore(img, history_container.firstChild);
+										history_container.insertBefore(a, history_container.firstChild);
 									}
 								});
 							});

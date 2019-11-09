@@ -35,6 +35,9 @@ class parser():
 			sender_device_id = access_tokens[data['access_token']]
 			partner_info = clients[sender_device_id]['connected_to']
 
+			file_id = data['file_meta']['file_id']
+			filename = data['file_meta']['name']
+
 			payload = {**data}
 			del(payload['access_token'])
 			#print(' >> ', payload['chunk_id'])
@@ -42,14 +45,13 @@ class parser():
 
 			if not fileno in chunks:
 				chunks[fileno] = {}
-			filename = data['file_meta']['name']
 			if not filename in chunks[fileno]:
 				chunks[fileno][filename] = {}
 				for i in range(1, data['chunks']):
 					chunks[fileno][filename][i] = False
 			chunks[fileno][filename][data['chunk_id']] = True
 
-			yield {'status' : 'successful', 'transmission' : 'sent', 'chunk' : data['chunk_id']}
+			yield {'status' : 'successful', 'transmission' : 'sent', 'file_id' : file_id, 'filename' : filename, 'chunk' : data['chunk_id'], 'chunks' : data['chunks']}
 
 		elif 'chunk_checksum' in data and 'access_token' in data:
 			if not data['access_token'] in access_tokens:
